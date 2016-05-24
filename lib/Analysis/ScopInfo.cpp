@@ -4856,35 +4856,14 @@ void ScopInfo::print(raw_ostream &OS, const Module *) const {
 
 void ScopInfo::clear() { scop.reset(); }
 
-//===----------------------------------------------------------------------===//
-ScopInfo::ScopInfo() : RegionPass(ID) {}
-
-ScopInfo::~ScopInfo() { clear(); }
-
-void ScopInfo::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.addRequired<LoopInfoWrapperPass>();
-  AU.addRequired<RegionInfoPass>();
-  AU.addRequired<DominatorTreeWrapperPass>();
-  AU.addRequiredTransitive<ScalarEvolutionWrapperPass>();
-  AU.addRequiredTransitive<ScopDetection>();
-  AU.addRequired<AAResultsWrapperPass>();
-  AU.addRequired<AssumptionCacheTracker>();
-  AU.setPreservesAll();
-}
-
-bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
-  SD = &getAnalysis<ScopDetection>();
-
-  if (!SD->isMaxRegionInScop(*R))
-    return false;
-
+void ScopInfo::createScopInfo(Region *R, ScalarEvolution *_SE,
+                              LoopInfo *_LI, AliasAnalysis *_AA,
+                              DataLayout *_DL, AssumtionCache *AC){
+  AA = _AA;
+  DL = _DL;
+  LI = _LI;
+  SE = _SE;
   Function *F = R->getEntry()->getParent();
-  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
-  LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
-  DL = &F->getParent()->getDataLayout();
-  DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
-  auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
 
   DebugLoc Beg, End;
   getDebugLocations(getBBPairForRegion(R), Beg, End);
@@ -4906,15 +4885,48 @@ bool ScopInfo::runOnRegion(Region *R, RGPassManager &RGM) {
   }
 
   emitOptimizationRemarkAnalysis(F->getContext(), DEBUG_TYPE, *F, End, Msg);
+  
+}
 
+//===----------------------------------------------------------------------===//
+ScopInfoRegionPass::ScopInfoRegionPass() : RegionPass(ID) {}
+
+ScopInfoRegionPass::~ScopInfoRegionPass() { clear(); }
+
+void ScopInfoRegionPass::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.addRequired<RegionInfoPass>();
+  AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequiredTransitive<ScalarEvolutionWrapperPass>();
+  AU.addRequiredTransitive<ScopDetection>();
+  AU.addRequired<AAResultsWrapperPass>();
+  AU.addRequired<AssumptionCacheTracker>();
+  AU.setPreservesAll();
+}
+
+bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
+  SD = &getAnalysis<ScopDetection>();
+
+  if (!SD->isMaxRegionInScop(*R))
+    return false;
+
+  Function *F = R->getEntry()->getParent();
+  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+  LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
+  DL = &F->getParent()->getDataLayout();
+  DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
+
+  SI.createScopInfo(R, SE, LI, AA, DL, DT, AC);
   return false;
 }
 
-char ScopInfo::ID = 0;
+char ScopInfoRegionPass::ID = 0;
 
-Pass *polly::createScopInfoPass() { return new ScopInfo(); }
+Pass *polly::createScopInfoRegionPass() { return new ScopInfoRegionPass(); }
 
-INITIALIZE_PASS_BEGIN(ScopInfo, "polly-scops",
+INITIALIZE_PASS_BEGIN(ScopInfoRegionPass, "polly-scops",
                       "Polly - Create polyhedral description of Scops", false,
                       false);
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass);
@@ -4924,6 +4936,6 @@ INITIALIZE_PASS_DEPENDENCY(RegionInfoPass);
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass);
 INITIALIZE_PASS_DEPENDENCY(ScopDetection);
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
-INITIALIZE_PASS_END(ScopInfo, "polly-scops",
+INITIALIZE_PASS_END(ScopInfoRegionPass, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
                     false)

@@ -2247,7 +2247,8 @@ static inline raw_ostream &operator<<(raw_ostream &O, const Scop &scop) {
 }
 
 /// @brief Build the Polly IR (Scop and ScopStmt) on a Region.
-class ScopInfo : public RegionPass {
+//class ScopInfo : public RegionPass {
+class ScopInfo {
   //===-------------------------------------------------------------------===//
   ScopInfo(const ScopInfo &) = delete;
   const ScopInfo &operator=(const ScopInfo &) = delete;
@@ -2468,9 +2469,14 @@ class ScopInfo : public RegionPass {
   void addPHIReadAccess(PHINode *PHI);
 
 public:
-  static char ID;
   explicit ScopInfo();
   ~ScopInfo();
+
+  /// Create the ScopInfo Object
+  void createScopInfo(Region *R, ScalarEvolution *SE,
+		      LoopInfo *LI, AliasAnalysis *AA,
+		      DataLayout *DL, AssumtionCache *AC);
+
 
   /// @brief Try to build the Polly IR of static control part on the current
   ///        SESE-Region.
@@ -2480,14 +2486,77 @@ public:
   ///         return null otherwise.
   Scop *getScop() { return scop.get(); }
   const Scop *getScop() const { return scop.get(); }
+};
 
-  /// @name RegionPass interface
-  //@{
-  virtual bool runOnRegion(Region *R, RGPassManager &RGM);
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
-  virtual void releaseMemory() { clear(); }
-  virtual void print(raw_ostream &OS, const Module *) const;
-  //@}
+
+/// \brief The legacy pass manager's analysis pass to compute scop information for a region.
+class ScopInfoRegionPass : public RegionPass {
+  ScopInfo SI;
+
+public:
+  static char ID; // Pass identification, replacement for typeid
+
+  ScopInfoRegionPass() : RegionPass(ID) {
+    initializeScopInfoRegionPassPass(*PassRegistry::getPassRegistry());
+  }
+
+  ScopInfo &getScopInfo() { return SI; }
+  const ScopInfo &getScopInfo() const { return SI; }
+
+  /// \brief Calculate the polyhedral scop information for a given region.
+  bool runOnRegion(Region *R, RGPassManager &RGM) override;
+
+  void verifyAnalysis() const override;
+
+  void releaseMemory() override { SI.releaseMemory(); }
+
+  void print(raw_ostream &O, const Module *M = nullptr) const override;
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+};
+
+
+/// \brief The legacy pass manager's analysis pass to compute scop information.
+class ScopInfoWrapperPass : public FunctionPass {
+
+public:	
+  //typedef DenseMap<Scop *, ScopInfo *> ScopToScopInfoMapTy;
+  using ScopToScopInfoMapTy = DenseMap<Scop *, ScopInfo *>;
+  using iterator = ScopToScopInfoMapTy::iterator;
+  //using const_iterator = ScopToScopInfoMapTy::const_iterator;
+
+private:  
+  ScopToScopInfoMapTy SIMap;
+
+public:
+  static char ID; // Pass identification, replacement for typeid
+
+  ScopInfoWrapperPass() : FunctionPass(ID) {
+    initializeScopInfoWrapperPassPass(*PassRegistry::getPassRegistry());
+  }
+
+  ScopInfo &getScopInfo(Scop *S) { return SIMap[S]; }
+  const ScopInfo &getScopInfo(Scop *S) const { return SIMap[S]; }
+  iterator begin() {
+    if (ScopToScopInfoMapTy.begin() != ScopToScopInfoMapTy.end())
+      return ScopToScopInfoMapTy.begin().second;
+    else
+      return ScopToScopInfoMapTy.end();
+  }
+  iterator end(){
+    return ScopToScopInfoMapTy.end();
+  }
+
+  /// \brief Calculate the polyhedral scop information for a given function.
+  bool runOnFunction(Function &F) override;
+
+  void verifyAnalysis() const override;
+
+  void releaseMemory() override { SI.releaseMemory(); }
+
+  void print(raw_ostream &O, const Module *M = nullptr) const override;
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
 } // end namespace polly
