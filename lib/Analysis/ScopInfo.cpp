@@ -4856,14 +4856,15 @@ void ScopInfo::print(raw_ostream &OS, const Module *) const {
 
 void ScopInfo::clear() { scop.reset(); }
 
-void ScopInfo::createScopInfo(Region *R, ScalarEvolution *_SE,
-                              LoopInfo *_LI, AliasAnalysis *_AA,
-                              DataLayout *_DL, AssumtionCache *AC){
+void ScopInfo::createScopInfo(Region *R, ScalarEvolution *_SE, LoopInfo *_LI,
+                              AliasAnalysis *_AA, ScopDetection *_SD,
+                              AssumptionCache &AC) {
   AA = _AA;
-  DL = _DL;
   LI = _LI;
   SE = _SE;
+  SD = _SD;
   Function *F = R->getEntry()->getParent();
+  DL = &F->getParent()->getDataLayout();
 
   DebugLoc Beg, End;
   getDebugLocations(getBBPairForRegion(R), Beg, End);
@@ -4885,14 +4886,9 @@ void ScopInfo::createScopInfo(Region *R, ScalarEvolution *_SE,
   }
 
   emitOptimizationRemarkAnalysis(F->getContext(), DEBUG_TYPE, *F, End, Msg);
-  
 }
 
 //===----------------------------------------------------------------------===//
-ScopInfoRegionPass::ScopInfoRegionPass() : RegionPass(ID) {}
-
-ScopInfoRegionPass::~ScopInfoRegionPass() { clear(); }
-
 void ScopInfoRegionPass::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<LoopInfoWrapperPass>();
   AU.addRequired<RegionInfoPass>();
@@ -4914,17 +4910,21 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
   AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
-  DL = &F->getParent()->getDataLayout();
+  // DL = &F->getParent()->getDataLayout();
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
 
-  SI.createScopInfo(R, SE, LI, AA, DL, DT, AC);
+  SI.createScopInfo(R, SE, LI, AA, SD, AC);
   return false;
+}
+
+void ScopInfoRegionPass::print(raw_ostream &OS, const Module *) const {
+  SI.print(OS);
 }
 
 char ScopInfoRegionPass::ID = 0;
 
-Pass *polly::createScopInfoRegionPass() { return new ScopInfoRegionPass(); }
+Pass *polly::createScopInfoRegionPassPass() { return new ScopInfoRegionPass(); }
 
 INITIALIZE_PASS_BEGIN(ScopInfoRegionPass, "polly-scops",
                       "Polly - Create polyhedral description of Scops", false,
