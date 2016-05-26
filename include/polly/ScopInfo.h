@@ -2252,23 +2252,23 @@ class ScopInfo {
   ScopInfo(const ScopInfo &) = delete;
   const ScopInfo &operator=(const ScopInfo &) = delete;
 
-  /// @brief The AliasAnalysis to build AliasSetTracker.
-  AliasAnalysis *AA;
-
-  /// @brief Target data for element size computing.
-  const DataLayout *DL;
-
-  /// @brief DominatorTree to reason about guaranteed execution.
-  DominatorTree *DT;
+  /// @brief The ScalarEvolution to help building Scop.
+  ScalarEvolution &SE;
 
   /// @brief LoopInfo for information about loops
-  LoopInfo *LI;
+  LoopInfo &LI;
+
+  /// @brief The AliasAnalysis to build AliasSetTracker.
+  AliasAnalysis &AA;
 
   /// @biref Valid Regions for Scop
-  ScopDetection *SD;
+  ScopDetection &SD;
 
-  /// @brief The ScalarEvolution to help building Scop.
-  ScalarEvolution *SE;
+  /// @brief Target data for element size computing.
+  const DataLayout &DL;
+
+  /// @brief DominatorTree to reason about guaranteed execution.
+  DominatorTree &DT;
 
   /// @brief Set of instructions that might read any memory location.
   SmallVector<Instruction *, 16> GlobalReads;
@@ -2468,14 +2468,14 @@ class ScopInfo {
   void addPHIReadAccess(PHINode *PHI);
 
 public:
-  // explicit ScopInfo();
-  ScopInfo(){};
-  ~ScopInfo() { releaseMemory(); };
+  explicit ScopInfo(Region *R, AssumptionCache &AC, ScalarEvolution &SE,
+                    LoopInfo &LI, AliasAnalysis &AA, ScopDetection &SD,
+                    const DataLayout &DL, DominatorTree &DT);
+  // ScopInfo(ScopInfo &&Args);
+  ~ScopInfo() {}
 
   /// Create the ScopInfo Object
-  void createScopInfo(Region *R, ScalarEvolution *SE, LoopInfo *LI,
-                      AliasAnalysis *AA, ScopDetection *SD,
-                      AssumptionCache &AC);
+  void createScopInfo(Region *R, AssumptionCache &AC);
 
   void releaseMemory() { clear(); }
 
@@ -2494,43 +2494,24 @@ public:
 /// \brief The legacy pass manager's analysis pass to compute scop information
 /// for a region.
 class ScopInfoRegionPass : public RegionPass {
-  ScopInfo SI;
-
-  /// @brief The AliasAnalysis to build AliasSetTracker.
-  AliasAnalysis *AA;
-
-  /// @brief Target data for element size computing.
-  // const DataLayout *DL;
-
-  /// @brief DominatorTree to reason about guaranteed execution.
-  DominatorTree *DT;
-
-  /// @brief LoopInfo for information about loops
-  LoopInfo *LI;
-
-  /// @biref Valid Regions for Scop
-  ScopDetection *SD;
-
-  /// @brief The ScalarEvolution to help building Scop.
-  ScalarEvolution *SE;
+  /// @brief The ScopInfo pointer which is used to construct a Scop.
+  std::unique_ptr<ScopInfo> SI;
 
 public:
   static char ID; // Pass identification, replacement for typeid
 
-  ScopInfoRegionPass() : RegionPass(ID) {
-    // initializeScopInfoRegionPassPass(*PassRegistry::getPassRegistry());
-  }
+  ScopInfoRegionPass() : RegionPass(ID) {}
   ~ScopInfoRegionPass() {}
 
-  ScopInfo &getScopInfo() { return SI; }
-  const ScopInfo &getScopInfo() const { return SI; }
+  ScopInfo &getScopInfo() { return *SI; }
+  const ScopInfo &getScopInfo() const { return *SI; }
 
   /// \brief Calculate the polyhedral scop information for a given region.
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
   // void verifyAnalysis() const override;
 
-  void releaseMemory() override { SI.releaseMemory(); }
+  void releaseMemory() override { SI.reset(); }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
