@@ -4906,9 +4906,6 @@ void ScopInfoRegionPass::getAnalysisUsage(AnalysisUsage &AU) const {
 bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   auto &SD = getAnalysis<ScopDetection>();
 
-  // if (!SD.isMaxRegionInScop(*R))
-  // return false;
-
   Function *F = R->getEntry()->getParent();
   auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
@@ -4917,9 +4914,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
 
-  // SI.createScopInfo(R, AC);
   SI.reset(new ScopInfo(R, AC, SE, LI, AA, SD, DL, DT));
-  // SI = new ScopInfo(R, AC, SE, LI, AA, SD, DL, DT);
   return false;
 }
 
@@ -4945,3 +4940,64 @@ INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
 INITIALIZE_PASS_END(ScopInfoRegionPass, "polly-scops",
                     "Polly - Create polyhedral description of Scops", false,
                     false)
+
+//===----------------------------------------------------------------------===//
+void ScopInfoWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.addRequired<RegionInfoPass>();
+  AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequiredTransitive<ScalarEvolutionWrapperPass>();
+  AU.addRequiredTransitive<ScopDetection>();
+  AU.addRequired<AAResultsWrapperPass>();
+  AU.addRequired<AssumptionCacheTracker>();
+  AU.setPreservesAll();
+}
+
+bool ScopInfoWrapperPass::runOnFunction(Function &F) {
+  auto &SD = getAnalysis<ScopDetection>();
+  ScopInfo *SI;
+  Region *R;
+
+  auto &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE();
+  auto &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+  auto &AA = getAnalysis<AAResultsWrapperPass>().getAAResults();
+  auto const &DL = F.getParent()->getDataLayout();
+  auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(F);
+
+  for (ScopDetection::iterator I = SD.begin(), E = SD.end(); I != E; ++I) {
+    R = const_cast<Region *>(*I);
+    SI = new ScopInfo(R, AC, SE, LI, AA, SD, DL, DT);
+    regionSImap.insert(std::make_pair(R, SI));
+  }
+  return false;
+}
+
+void ScopInfoWrapperPass::print(raw_ostream &OS, const Module *) const {
+  for (auto it : regionSImap) {
+    if (it.second)
+      it.second->print(OS);
+  }
+}
+
+char ScopInfoWrapperPass::ID = 0;
+
+Pass *polly::createScopInfoWrapperPassPass() {
+  return new ScopInfoWrapperPass();
+}
+
+INITIALIZE_PASS_BEGIN(
+    ScopInfoWrapperPass, "polly-scops-all",
+    "Polly - Create polyhedral description of Scops of a function", false,
+    false);
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker);
+INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(RegionInfoPass);
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass);
+INITIALIZE_PASS_DEPENDENCY(ScopDetection);
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass);
+INITIALIZE_PASS_END(
+    ScopInfoWrapperPass, "polly-scops-all",
+    "Polly - Create polyhedral description of Scops of a function", false,
+    false)

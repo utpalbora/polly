@@ -155,6 +155,7 @@ void initializePollyPasses(PassRegistry &Registry) {
   initializePollyCanonicalizePass(Registry);
   initializeScopDetectionPass(Registry);
   initializeScopInfoRegionPassPass(Registry);
+  initializeScopInfoWrapperPassPass(Registry);
   initializeCodegenCleanupPass(Registry);
 }
 
@@ -200,6 +201,7 @@ void registerPollyPasses(llvm::legacy::PassManagerBase &PM) {
     PM.add(polly::createDOTOnlyPrinterPass());
 
   PM.add(polly::createScopInfoRegionPassPass());
+  PM.add(polly::createScopInfoWrapperPassPass()); // Shall we add a switch?
 
   if (ImportJScop)
     PM.add(polly::createJSONImporterPass());

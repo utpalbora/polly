@@ -2518,56 +2518,65 @@ public:
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
-/*
-/// \brief The legacy pass manager's analysis pass to compute scop information.
+/// \brief The legacy pass manager's analysis pass to compute scop information
+/// for the whole function.
 class ScopInfoWrapperPass : public FunctionPass {
 
 public:
-  //typedef DenseMap<Scop *, ScopInfo *> ScopToScopInfoMapTy;
-  using ScopToScopInfoMapTy = DenseMap<Scop *, ScopInfo *>;
-  using iterator = ScopToScopInfoMapTy::iterator;
-  //using const_iterator = ScopToScopInfoMapTy::const_iterator;
+  using RegionToScopInfoMapTy = DenseMap<Region *, ScopInfo *>;
+  using iterator = RegionToScopInfoMapTy::iterator;
+  using const_iterator = RegionToScopInfoMapTy::const_iterator;
 
 private:
-  ScopToScopInfoMapTy SIMap;
+  RegionToScopInfoMapTy regionSImap;
 
 public:
   static char ID; // Pass identification, replacement for typeid
 
-  ScopInfoWrapperPass() : FunctionPass(ID) {
-    initializeScopInfoWrapperPassPass(*PassRegistry::getPassRegistry());
-  }
+  ScopInfoWrapperPass() : FunctionPass(ID) {}
+  ~ScopInfoWrapperPass() {}
 
-  ScopInfo &getScopInfo(Scop *S) { return SIMap[S]; }
-  const ScopInfo &getScopInfo(Scop *S) const { return SIMap[S]; }
-  iterator begin() {
-    if (ScopToScopInfoMapTy.begin() != ScopToScopInfoMapTy.end())
-      return ScopToScopInfoMapTy.begin().second;
+  ScopInfo *getScopInfo(Region *R) {
+    auto it = regionSImap.find(R);
+    if (it != regionSImap.end())
+      return it->second;
     else
-      return ScopToScopInfoMapTy.end();
-  }
-  iterator end(){
-    return ScopToScopInfoMapTy.end();
+      return nullptr;
   }
 
-  /// \brief Calculate the polyhedral scop information for a given function.
+  const ScopInfo *getScopInfo(Region *R) const {
+    auto it = regionSImap.find(R);
+    if (it != regionSImap.end())
+      return it->second;
+    else
+      return nullptr;
+  }
+
+  iterator begin() { return regionSImap.begin(); }
+  iterator end() { return regionSImap.end(); }
+
+  /// \brief Calculate all the polyhedral scops for a given function.
   bool runOnFunction(Function &F) override;
 
-  void verifyAnalysis() const override;
+  // void verifyAnalysis() const override;
 
-  void releaseMemory() override { SI.releaseMemory(); }
+  void releaseMemory() override {
+    for (auto &it : regionSImap) {
+      it.second->releaseMemory();
+    }
+  }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
-*/
 
 } // end namespace polly
 
 namespace llvm {
 class PassRegistry;
 void initializeScopInfoRegionPassPass(llvm::PassRegistry &);
+void initializeScopInfoWrapperPassPass(llvm::PassRegistry &);
 }
 
 #endif
