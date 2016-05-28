@@ -2252,23 +2252,23 @@ class ScopInfo {
   ScopInfo(const ScopInfo &) = delete;
   const ScopInfo &operator=(const ScopInfo &) = delete;
 
-  /// @brief The ScalarEvolution to help building Scop.
-  ScalarEvolution &SE;
-
-  /// @brief LoopInfo for information about loops
-  LoopInfo &LI;
-
   /// @brief The AliasAnalysis to build AliasSetTracker.
   AliasAnalysis &AA;
-
-  /// @biref Valid Regions for Scop
-  ScopDetection &SD;
 
   /// @brief Target data for element size computing.
   const DataLayout &DL;
 
   /// @brief DominatorTree to reason about guaranteed execution.
   DominatorTree &DT;
+
+  /// @brief LoopInfo for information about loops
+  LoopInfo &LI;
+
+  /// @biref Valid Regions for Scop
+  ScopDetection &SD;
+
+  /// @brief The ScalarEvolution to help building Scop.
+  ScalarEvolution &SE;
 
   /// @brief Set of instructions that might read any memory location.
   SmallVector<Instruction *, 16> GlobalReads;
@@ -2468,13 +2468,13 @@ class ScopInfo {
   void addPHIReadAccess(PHINode *PHI);
 
 public:
-  explicit ScopInfo(Region *R, AssumptionCache &AC, ScalarEvolution &SE,
-                    LoopInfo &LI, AliasAnalysis &AA, ScopDetection &SD,
-                    const DataLayout &DL, DominatorTree &DT);
-  // ScopInfo(ScopInfo &&Args);
+  explicit ScopInfo(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
+                    const DataLayout &DL, DominatorTree &DT, LoopInfo &LI,
+                    ScopDetection &SD, ScalarEvolution &SE);
   ~ScopInfo() {}
 
-  /// Create the ScopInfo Object
+  /// @brief Build and initialize Polly IR of static control part of the current
+  /// SESE-Region.
   void createScopInfo(Region *R, AssumptionCache &AC);
 
   void releaseMemory() { clear(); }
@@ -2491,8 +2491,8 @@ public:
   const Scop *getScop() const { return scop.get(); }
 };
 
-/// \brief The legacy pass manager's analysis pass to compute scop information
-/// for a region.
+/// @brief The legacy pass manager's analysis pass to compute scop information
+///        for a region.
 class ScopInfoRegionPass : public RegionPass {
   /// @brief The ScopInfo pointer which is used to construct a Scop.
   std::unique_ptr<ScopInfo> SI;
@@ -2503,13 +2503,15 @@ public:
   ScopInfoRegionPass() : RegionPass(ID) {}
   ~ScopInfoRegionPass() {}
 
+  /// @brief Build ScopInfo object, which constructs Polly IR of static control
+  ///        part for the current SESE-Region.
+  ///
+  /// @return Return ScopInfo object for the current Region.
   ScopInfo &getScopInfo() { return *SI; }
   const ScopInfo &getScopInfo() const { return *SI; }
 
-  /// \brief Calculate the polyhedral scop information for a given region.
+  /// @brief Calculate the polyhedral scop information for a given Region.
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
-
-  // void verifyAnalysis() const override;
 
   void releaseMemory() override { SI.reset(); }
 

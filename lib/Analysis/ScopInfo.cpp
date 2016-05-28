@@ -4854,10 +4854,10 @@ void ScopInfo::print(raw_ostream &OS, const Module *) const {
   scop->print(OS);
 }
 
-ScopInfo::ScopInfo(Region *R, AssumptionCache &AC, ScalarEvolution &SE,
-                   LoopInfo &LI, AliasAnalysis &AA, ScopDetection &SD,
-                   const DataLayout &DL, DominatorTree &DT)
-    : SE(SE), LI(LI), AA(AA), SD(SD), DL(DL), DT(DT) {
+ScopInfo::ScopInfo(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
+                   const DataLayout &DL, DominatorTree &DT, LoopInfo &LI,
+                   ScopDetection &SD, ScalarEvolution &SE)
+    : AA(AA), DL(DL), DT(DT), LI(LI), SD(SD), SE(SE) {
   createScopInfo(R, AC);
 }
 
@@ -4914,7 +4914,7 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
 
-  SI.reset(new ScopInfo(R, AC, SE, LI, AA, SD, DL, DT));
+  SI.reset(new ScopInfo(R, AC, AA, DL, DT, LI, SD, SE));
   return false;
 }
 
@@ -4967,7 +4967,7 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
 
   for (ScopDetection::iterator I = SD.begin(), E = SD.end(); I != E; ++I) {
     R = const_cast<Region *>(*I);
-    SI = new ScopInfo(R, AC, SE, LI, AA, SD, DL, DT);
+    SI = new ScopInfo(R, AC, AA, DL, DT, LI, SD, SE);
     regionSImap.insert(std::make_pair(R, SI));
   }
   return false;
