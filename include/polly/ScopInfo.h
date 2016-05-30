@@ -64,7 +64,7 @@ namespace polly {
 class MemoryAccess;
 class Scop;
 class ScopStmt;
-class ScopInfo;
+class ScopBuilder;
 
 //===---------------------------------------------------------------------===//
 
@@ -482,7 +482,7 @@ private:
   ///        sum[i+j] = sum[i] + 3;
   ///
   /// Here not all iterations access the same memory location, but iterations
-  /// for which j = 0 holds do. After lifting the equality check in ScopInfo,
+  /// for which j = 0 holds do. After lifting the equality check in ScopBuilder,
   /// subsequent transformations do not only need check if a statement is
   /// reduction like, but they also need to verify that that the reduction
   /// property is only exploited for statement instances that load from and
@@ -1503,7 +1503,7 @@ private:
   /// @brief List of invariant accesses.
   InvariantEquivClassesTy InvariantEquivClasses;
 
-  /// @brief Scop constructor; invoked from ScopInfo::buildScop.
+  /// @brief Scop constructor; invoked from ScopBuilder::buildScop.
   Scop(Region &R, ScalarEvolution &SE, LoopInfo &LI,
        ScopDetection::DetectionContext &DC);
 
@@ -1513,7 +1513,7 @@ private:
   }
   //@}
 
-  /// @brief Initialize this ScopInfo .
+  /// @brief Initialize this ScopBuilder.
   void init(AliasAnalysis &AA, AssumptionCache &AC, DominatorTree &DT,
             LoopInfo &LI);
 
@@ -1814,7 +1814,7 @@ private:
   void printAliasAssumptions(raw_ostream &OS) const;
   //@}
 
-  friend class ScopInfo;
+  friend class ScopBuilder;
 
 public:
   ~Scop();
@@ -2247,10 +2247,10 @@ static inline raw_ostream &operator<<(raw_ostream &O, const Scop &scop) {
 }
 
 /// @brief Build the Polly IR (Scop and ScopStmt) on a Region.
-class ScopInfo {
+class ScopBuilder {
   //===-------------------------------------------------------------------===//
-  ScopInfo(const ScopInfo &) = delete;
-  const ScopInfo &operator=(const ScopInfo &) = delete;
+  ScopBuilder(const ScopBuilder &) = delete;
+  const ScopBuilder &operator=(const ScopBuilder &) = delete;
 
   /// @brief The AliasAnalysis to build AliasSetTracker.
   AliasAnalysis &AA;
@@ -2468,18 +2468,10 @@ class ScopInfo {
   void addPHIReadAccess(PHINode *PHI);
 
 public:
-  explicit ScopInfo(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
-                    const DataLayout &DL, DominatorTree &DT, LoopInfo &LI,
-                    ScopDetection &SD, ScalarEvolution &SE);
-  ~ScopInfo() {}
-
-  /// @brief Build and initialize Polly IR of static control part of the current
-  /// SESE-Region.
-  void createScopInfo(Region *R, AssumptionCache &AC);
-
-  void releaseMemory() { clear(); }
-
-  virtual void print(raw_ostream &O, const Module *M = nullptr) const;
+  explicit ScopBuilder(Region *R, AssumptionCache &AC, AliasAnalysis &AA,
+                       const DataLayout &DL, DominatorTree &DT, LoopInfo &LI,
+                       ScopDetection &SD, ScalarEvolution &SE);
+  ~ScopBuilder() {}
 
   /// @brief Try to build the Polly IR of static control part on the current
   ///        SESE-Region.
@@ -2494,8 +2486,8 @@ public:
 /// @brief The legacy pass manager's analysis pass to compute scop information
 ///        for a region.
 class ScopInfoRegionPass : public RegionPass {
-  /// @brief The ScopInfo pointer which is used to construct a Scop.
-  std::unique_ptr<ScopInfo> SI;
+  /// @brief The Scop pointer which is used to construct a Scop.
+  std::unique_ptr<ScopBuilder> SB;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2503,34 +2495,53 @@ public:
   ScopInfoRegionPass() : RegionPass(ID) {}
   ~ScopInfoRegionPass() {}
 
-  /// @brief Build ScopInfo object, which constructs Polly IR of static control
+  /// @brief Build Scop object, the Polly IR of static control
   ///        part for the current SESE-Region.
   ///
-  /// @return Return ScopInfo object for the current Region.
-  ScopInfo &getScopInfo() { return *SI; }
-  const ScopInfo &getScopInfo() const { return *SI; }
+  /// @return Return Scop for the current Region.
+  Scop *getScop() {
+    if (SB)
+      return SB.get()->getScop();
+    else
+      return nullptr;
+  }
+  const Scop *getScop() const {
+    if (SB)
+      return SB.get()->getScop();
+    else
+      return nullptr;
+  }
 
   /// @brief Calculate the polyhedral scop information for a given Region.
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
-  void releaseMemory() override { SI.reset(); }
+  void releaseMemory() override { SB.reset(); }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override;
 };
 
-/// \brief The legacy pass manager's analysis pass to compute scop information
-/// for the whole function.
+//===----------------------------------------------------------------------===//
+/// @brief The legacy pass manager's analysis pass to compute scop information
+///        for the whole function.
+///
+/// This pass will maintain a map of Region to its ScopInfo object for all the
+/// top level regions present in the function.
+/// This pass is designed to be used by other larger passes such as
+/// PolyhedralInfo function pass as currently it is not feasible to schedula a
+/// region pass from a function pass in LLVM.
 class ScopInfoWrapperPass : public FunctionPass {
 
 public:
-  using RegionToScopInfoMapTy = DenseMap<Region *, ScopInfo *>;
-  using iterator = RegionToScopInfoMapTy::iterator;
-  using const_iterator = RegionToScopInfoMapTy::const_iterator;
+  using RegionToScopMapTy = DenseMap<Region *, Scop *>;
+  using iterator = RegionToScopMapTy::iterator;
+  using const_iterator = RegionToScopMapTy::const_iterator;
 
 private:
-  RegionToScopInfoMapTy regionSImap;
+  /// @brief A map of Region to its Scop object containing
+  ///        Polly IR of static control part
+  RegionToScopMapTy regionToScopMap;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2538,35 +2549,30 @@ public:
   ScopInfoWrapperPass() : FunctionPass(ID) {}
   ~ScopInfoWrapperPass() {}
 
-  ScopInfo *getScopInfo(Region *R) {
-    auto it = regionSImap.find(R);
-    if (it != regionSImap.end())
+  /// @brief Get the ScopInfo object for the given Region
+  Scop *getScop(Region *R) {
+    auto it = regionToScopMap.find(R);
+    if (it != regionToScopMap.end())
       return it->second;
     else
       return nullptr;
   }
 
-  const ScopInfo *getScopInfo(Region *R) const {
-    auto it = regionSImap.find(R);
-    if (it != regionSImap.end())
+  const Scop *getScop(Region *R) const {
+    auto it = regionToScopMap.find(R);
+    if (it != regionToScopMap.end())
       return it->second;
     else
       return nullptr;
   }
 
-  iterator begin() { return regionSImap.begin(); }
-  iterator end() { return regionSImap.end(); }
+  iterator begin() { return regionToScopMap.begin(); }
+  iterator end() { return regionToScopMap.end(); }
 
-  /// \brief Calculate all the polyhedral scops for a given function.
+  /// @brief Calculate all the polyhedral scops for a given function.
   bool runOnFunction(Function &F) override;
 
-  // void verifyAnalysis() const override;
-
-  void releaseMemory() override {
-    for (auto &it : regionSImap) {
-      it.second->releaseMemory();
-    }
-  }
+  void releaseMemory() override { regionToScopMap.clear(); }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 

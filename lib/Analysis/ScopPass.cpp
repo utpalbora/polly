@@ -19,7 +19,8 @@ using namespace polly;
 
 bool ScopPass::runOnRegion(Region *R, RGPassManager &RGM) {
   S = nullptr;
-  if ((S = getAnalysis<ScopInfoRegionPass>().getScopInfo().getScop()))
+
+  if ((S = getAnalysis<ScopInfoRegionPass>().getScop()))
     return runOnScop(*S);
 
   return false;
