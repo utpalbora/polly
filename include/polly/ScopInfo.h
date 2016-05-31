@@ -2476,18 +2476,16 @@ public:
   /// @brief Try to build the Polly IR of static control part on the current
   ///        SESE-Region.
   ///
-  /// @return If the current region is a valid for a static control part,
-  ///         return the Polly IR representing this static control part,
-  ///         return null otherwise.
-  Scop *getScop() { return scop.get(); }
-  const Scop *getScop() const { return scop.get(); }
+  /// @return Give up the ownership of the scop object or static control part
+  ///         for the region
+  std::unique_ptr<Scop> getScop() { return std::move(scop); }
 };
 
 /// @brief The legacy pass manager's analysis pass to compute scop information
 ///        for a region.
 class ScopInfoRegionPass : public RegionPass {
   /// @brief The Scop pointer which is used to construct a Scop.
-  std::unique_ptr<ScopBuilder> SB;
+  std::unique_ptr<Scop> scop;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -2498,24 +2496,16 @@ public:
   /// @brief Build Scop object, the Polly IR of static control
   ///        part for the current SESE-Region.
   ///
-  /// @return Return Scop for the current Region.
-  Scop *getScop() {
-    if (SB)
-      return SB.get()->getScop();
-    else
-      return nullptr;
-  }
-  const Scop *getScop() const {
-    if (SB)
-      return SB.get()->getScop();
-    else
-      return nullptr;
-  }
+  /// @return If the current region is a valid for a static control part,
+  ///         return the Polly IR representing this static control part,
+  ///         return null otherwise.
+  Scop *getScop() const { return scop.get(); }
+  // const Scop *getScop() const { return scop.get(); }
 
   /// @brief Calculate the polyhedral scop information for a given Region.
   bool runOnRegion(Region *R, RGPassManager &RGM) override;
 
-  void releaseMemory() override { SB.reset(); }
+  void releaseMemory() override { scop.reset(); }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 
@@ -2526,7 +2516,7 @@ public:
 /// @brief The legacy pass manager's analysis pass to compute scop information
 ///        for the whole function.
 ///
-/// This pass will maintain a map of Region to its ScopInfo object for all the
+/// This pass will maintain a map of Region to its Scop object for all the
 /// top level regions present in the function.
 /// This pass is designed to be used by other larger passes such as
 /// PolyhedralInfo function pass as currently it is not feasible to schedula a
@@ -2534,7 +2524,7 @@ public:
 class ScopInfoWrapperPass : public FunctionPass {
 
 public:
-  using RegionToScopMapTy = DenseMap<Region *, Scop *>;
+  using RegionToScopMapTy = DenseMap<Region *, std::unique_ptr<Scop>>;
   using iterator = RegionToScopMapTy::iterator;
   using const_iterator = RegionToScopMapTy::const_iterator;
 
@@ -2553,7 +2543,7 @@ public:
   Scop *getScop(Region *R) {
     auto it = regionToScopMap.find(R);
     if (it != regionToScopMap.end())
-      return it->second;
+      return it->second.get();
     else
       return nullptr;
   }
@@ -2561,7 +2551,7 @@ public:
   const Scop *getScop(Region *R) const {
     auto it = regionToScopMap.find(R);
     if (it != regionToScopMap.end())
-      return it->second;
+      return it->second.get();
     else
       return nullptr;
   }
@@ -2572,7 +2562,12 @@ public:
   /// @brief Calculate all the polyhedral scops for a given function.
   bool runOnFunction(Function &F) override;
 
-  void releaseMemory() override { regionToScopMap.clear(); }
+  void releaseMemory() override {
+    for (auto &it : regionToScopMap) {
+      it.second.reset();
+    }
+    regionToScopMap.clear();
+  }
 
   void print(raw_ostream &O, const Module *M = nullptr) const override;
 

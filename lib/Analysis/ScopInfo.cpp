@@ -4902,19 +4902,20 @@ bool ScopInfoRegionPass::runOnRegion(Region *R, RGPassManager &RGM) {
   auto &DT = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   auto &AC = getAnalysis<AssumptionCacheTracker>().getAssumptionCache(*F);
 
-  SB.reset(new ScopBuilder(R, AC, AA, DL, DT, LI, SD, SE));
+  ScopBuilder *SB;
+  SB = new ScopBuilder(R, AC, AA, DL, DT, LI, SD, SE);
+  if (SB) {
+    scop = SB->getScop(); // take ownership of scop object
+    SB = nullptr;
+  }
   return false;
 }
 
 void ScopInfoRegionPass::print(raw_ostream &OS, const Module *) const {
-  Scop *scop;
-  if (SB) {
-    if ((scop = SB->getScop())) {
-      scop->print(OS);
-      return;
-    }
-  }
-  OS << "Invalid Scop!\n";
+  if (scop)
+    scop->print(OS);
+  else
+    OS << "Invalid Scop!\n";
 }
 
 char ScopInfoRegionPass::ID = 0;
@@ -4955,7 +4956,6 @@ void ScopInfoWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
 
 bool ScopInfoWrapperPass::runOnFunction(Function &F) {
   auto &SD = getAnalysis<ScopDetection>();
-  Scop *scop;
   ScopBuilder *SB;
   Region *R;
 
@@ -4974,14 +4974,14 @@ bool ScopInfoWrapperPass::runOnFunction(Function &F) {
       continue;
 
     SB = new ScopBuilder(R, AC, AA, DL, DT, LI, SD, SE);
-    scop = SB->getScop();
-    regionToScopMap.insert(std::make_pair(R, scop));
+    if (SB)
+      regionToScopMap.insert(std::make_pair(R, SB->getScop()));
   }
   return false;
 }
 
 void ScopInfoWrapperPass::print(raw_ostream &OS, const Module *) const {
-  for (auto it : regionToScopMap) {
+  for (auto &it : regionToScopMap) {
     if (it.second)
       it.second->print(OS);
   }
